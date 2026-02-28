@@ -32,7 +32,7 @@ export async function POST(req: Request) {
                 sql: "SELECT vote_value FROM votes WHERE user_id = ? AND target_id = ? AND target_type = ?",
                 args: [payload.userId, target_id, target_type] as any[]
             });
-            const existingVote = checkResult.rows[0] as { vote_value: number } | undefined;
+            const existingVote = checkResult.rows[0] as unknown as { vote_value: number } | undefined;
 
             if (vote_value === 0 || (existingVote && existingVote.vote_value === vote_value)) {
                 // Remove vote if sending 0 or sending the same vote again (toggle off)
