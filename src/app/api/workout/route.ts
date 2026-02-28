@@ -106,7 +106,7 @@ export async function POST(req: Request) {
             sql: "SELECT DATE(start_time) as d FROM workout_sessions WHERE user_id = ? ORDER BY d DESC",
             args: [payload.userId] as any[]
         });
-        const dateRows = allDatesResult.rows as { d: string }[];
+        const dateRows = allDatesResult.rows as unknown as { d: string }[];
 
         const uniqueDates = Array.from(new Set(dateRows.map(r => r.d)));
         const total_active_days = uniqueDates.length;
