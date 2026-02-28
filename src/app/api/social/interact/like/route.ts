@@ -25,30 +25,34 @@ export async function POST(req: Request) {
 
         try {
             const likeId = crypto.randomUUID();
-            db.prepare(
-                "INSERT INTO likes (id, user_id, target_id, target_type) VALUES (?, ?, ?, ?)"
-            ).run(likeId, payload.userId, target_id, target_type);
+            await db.execute({
+                sql: "INSERT INTO likes (id, user_id, target_id, target_type) VALUES (?, ?, ?, ?)",
+                args: [likeId, payload.userId, target_id, target_type] as any[]
+            });
 
             // Determine owner of the target to send a notification
             let ownerId = null;
             if (target_type === 'workout_post') {
-                const row = db.prepare("SELECT user_id FROM workout_posts WHERE id = ?").get(target_id) as any;
+                const rowResult = await db.execute({ sql: "SELECT user_id FROM workout_posts WHERE id = ?", args: [target_id] as any[] });
+                const row = rowResult.rows[0] as any;
                 if (row) ownerId = row.user_id;
             } else if (target_type === 'community_post') {
-                const row = db.prepare("SELECT user_id FROM community_posts WHERE id = ?").get(target_id) as any;
+                const rowResult = await db.execute({ sql: "SELECT user_id FROM community_posts WHERE id = ?", args: [target_id] as any[] });
+                const row = rowResult.rows[0] as any;
                 if (row) ownerId = row.user_id;
             }
 
             // Generate Notification if we aren't liking our own post
             if (ownerId && ownerId !== payload.userId) {
-                db.prepare(
-                    "INSERT INTO notifications (id, user_id, actor_id, type, target_id) VALUES (?, ?, ?, ?, ?)"
-                ).run(crypto.randomUUID(), ownerId, payload.userId, 'like', target_id);
+                await db.execute({
+                    sql: "INSERT INTO notifications (id, user_id, actor_id, type, target_id) VALUES (?, ?, ?, ?, ?)",
+                    args: [crypto.randomUUID(), ownerId, payload.userId, 'like', target_id] as any[]
+                });
             }
 
             return NextResponse.json({ success: true, message: "Liked successfully" }, { status: 201 });
         } catch (insertError: any) {
-            if (insertError.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            if (insertError.message && insertError.message.includes('UNIQUE constraint failed')) {
                 return NextResponse.json({ error: "Already liked this item" }, { status: 409 });
             }
             throw insertError;
@@ -76,11 +80,12 @@ export async function DELETE(req: Request) {
         const { target_id, target_type } = await req.json();
         if (!target_id || !target_type) return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
 
-        const result = db.prepare(
-            "DELETE FROM likes WHERE user_id = ? AND target_id = ? AND target_type = ?"
-        ).run(payload.userId, target_id, target_type);
+        const result = await db.execute({
+            sql: "DELETE FROM likes WHERE user_id = ? AND target_id = ? AND target_type = ?",
+            args: [payload.userId, target_id, target_type] as any[]
+        });
 
-        if (result.changes === 0) {
+        if (result.rowsAffected === 0) {
             return NextResponse.json({ error: "Not liked yet" }, { status: 404 });
         }
 

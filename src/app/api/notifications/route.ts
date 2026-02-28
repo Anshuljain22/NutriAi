@@ -15,7 +15,8 @@ export async function GET(req: Request) {
         const payload = await verifyToken(token);
         if (!payload || !payload.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const notifications = db.prepare(`
+        const result = await db.execute({
+            sql: `
       SELECT n.id, n.type, n.reference_id as target_id, n.is_read, n.created_at,
              u.id as actor_id, u.name as actor_name
       FROM notifications n
@@ -23,11 +24,16 @@ export async function GET(req: Request) {
       WHERE n.user_id = ?
       ORDER BY n.created_at DESC
       LIMIT 50
-    `).all(payload.userId);
+    `,
+            args: [payload.userId] as any[]
+        });
+        const notifications = result.rows;
 
-        const unreadCount = db.prepare(`
-      SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0
-    `).get(payload.userId) as any;
+        const countResult = await db.execute({
+            sql: `SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0`,
+            args: [payload.userId] as any[]
+        });
+        const unreadCount = countResult.rows[0] as any;
 
         return NextResponse.json({ notifications, unread: unreadCount.count }, { status: 200 });
     } catch (error) {
@@ -49,7 +55,10 @@ export async function PUT(req: Request) {
         const payload = await verifyToken(token);
         if (!payload || !payload.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(payload.userId);
+        await db.execute({
+            sql: "UPDATE notifications SET is_read = 1 WHERE user_id = ?",
+            args: [payload.userId] as any[]
+        });
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error) {

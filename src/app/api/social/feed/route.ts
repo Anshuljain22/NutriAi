@@ -20,27 +20,20 @@ export async function GET(req: Request) {
 
         let feedRows = [];
 
-        // The feed should fetch posts from:
-        // 1. Users that the caller follows
-        // 2. The caller's own posts (so they see them in their feed)
-        // 3. AND where privacy = 'public' or 'followers' (if following).  'private' is only for self.
-
-        // For 'trending', we'll calculate an engagement score based on likes and comments. In SQLite we can do a LEFT JOIN to count these.
-
         const baseQuery = `
       SELECT wp.id as post_id, wp.caption, wp.privacy, wp.created_at as post_date,
              u.id as author_id, u.name as author_name,
              ws.id as workout_id, ws.duration, ws.total_volume,
              (SELECT COUNT(*) FROM likes WHERE target_id = wp.id AND target_type = 'workout_post') as like_count,
              (SELECT COUNT(*) FROM comments WHERE target_id = wp.id AND target_type = 'workout_post') as comment_count,
-             EXISTS(SELECT 1 FROM likes WHERE target_id = wp.id AND target_type = 'workout_post' AND user_id = @userId) as has_liked
+             EXISTS(SELECT 1 FROM likes WHERE target_id = wp.id AND target_type = 'workout_post' AND user_id = ?) as has_liked
       FROM workout_posts wp
       JOIN users u ON wp.user_id = u.id
       JOIN workout_sessions ws ON wp.workout_id = ws.id
       WHERE (
-        wp.user_id = @userId 
+        wp.user_id = ? 
         OR 
-        (wp.user_id IN (SELECT following_id FROM follows WHERE follower_id = @userId) AND wp.privacy IN ('public', 'followers'))
+        (wp.user_id IN (SELECT following_id FROM follows WHERE follower_id = ?) AND wp.privacy IN ('public', 'followers'))
         OR 
         (wp.privacy = 'public') 
       )
@@ -50,18 +43,27 @@ export async function GET(req: Request) {
             ? "ORDER BY (like_count + (comment_count * 2)) DESC, post_date DESC LIMIT 50"
             : "ORDER BY post_date DESC LIMIT 50";
 
-        const stmt = db.prepare(baseQuery + orderByClause);
-        feedRows = stmt.all({ userId: payload.userId }) as any[];
+        const stmtResult = await db.execute({
+            sql: baseQuery + orderByClause,
+            args: [payload.userId, payload.userId, payload.userId] as any[]
+        });
+        feedRows = stmtResult.rows as any[];
 
         // Reconstruct the full Workout object per post
-        const feed = feedRows.map(row => {
+        const feed = await Promise.all(feedRows.map(async row => {
 
-            const exStmt = db.prepare("SELECT * FROM exercises WHERE session_id = ?");
-            const exercises = exStmt.all(row.workout_id) as any[];
+            const exResult = await db.execute({
+                sql: "SELECT * FROM exercises WHERE session_id = ?",
+                args: [row.workout_id] as any[]
+            });
+            const exercises = exResult.rows as any[];
 
-            const populatedExercises = exercises.map(ex => {
-                const setStmt = db.prepare("SELECT * FROM sets WHERE exercise_id = ?");
-                const sets = setStmt.all(ex.id) as any[];
+            const populatedExercises = await Promise.all(exercises.map(async ex => {
+                const setResult = await db.execute({
+                    sql: "SELECT * FROM sets WHERE exercise_id = ?",
+                    args: [ex.id] as any[]
+                });
+                const sets = setResult.rows as any[];
                 return {
                     id: ex.id,
                     name: ex.name,
@@ -69,7 +71,7 @@ export async function GET(req: Request) {
                     sets: sets.map(s => ({ id: s.id, reps: s.reps, weight: s.weight, volume: s.volume })),
                     total_volume: ex.total_volume
                 }
-            });
+            }));
 
             return {
                 post_id: row.post_id,
@@ -87,7 +89,7 @@ export async function GET(req: Request) {
                     exercises: populatedExercises
                 }
             };
-        });
+        }));
 
         return NextResponse.json({ feed }, { status: 200 });
     } catch (error) {

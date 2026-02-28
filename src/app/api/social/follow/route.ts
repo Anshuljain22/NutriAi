@@ -24,20 +24,27 @@ export async function POST(req: Request) {
         }
 
         // Check if user to follow exists
-        const userStmt = db.prepare("SELECT id FROM users WHERE id = ?");
-        const userExists = userStmt.get(following_id);
+        const userResult = await db.execute({
+            sql: "SELECT id FROM users WHERE id = ?",
+            args: [following_id] as any[]
+        });
+        const userExists = userResult.rows[0];
         if (!userExists) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
         try {
-            db.prepare("INSERT INTO follows (follower_id, following_id) VALUES (?, ?)").run(payload.userId, following_id);
+            await db.execute({
+                sql: "INSERT INTO follows (follower_id, following_id) VALUES (?, ?)",
+                args: [payload.userId, following_id] as any[]
+            });
 
             // Send Notification to the user being followed
             const notifId = crypto.randomUUID();
-            db.prepare(
-                "INSERT INTO notifications (id, user_id, actor_id, type) VALUES (?, ?, ?, ?)"
-            ).run(notifId, following_id, payload.userId, 'follow');
+            await db.execute({
+                sql: "INSERT INTO notifications (id, user_id, actor_id, type) VALUES (?, ?, ?, ?)",
+                args: [notifId, following_id, payload.userId, 'follow'] as any[]
+            });
 
             return NextResponse.json({ success: true, message: "Followed successfully" }, { status: 201 });
         } catch (insertError: any) {
@@ -70,9 +77,12 @@ export async function DELETE(req: Request) {
 
         if (!following_id) return NextResponse.json({ error: "Missing following_id" }, { status: 400 });
 
-        const result = db.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").run(payload.userId, following_id);
+        const result = await db.execute({
+            sql: "DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
+            args: [payload.userId, following_id] as any[]
+        });
 
-        if (result.changes === 0) {
+        if (result.rowsAffected === 0) {
             return NextResponse.json({ error: "Not following this user" }, { status: 404 });
         }
 

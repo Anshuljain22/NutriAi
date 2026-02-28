@@ -19,11 +19,15 @@ export async function GET(req: Request, { params }: any) {
         const { id: commId, postId } = await params;
 
         // 1. Verify Community & Membership for privacy
-        const comm = db.prepare(`
+        const commResult = await db.execute({
+            sql: `
             SELECT privacy,
                    EXISTS(SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?) as is_member
             FROM communities WHERE id = ?
-        `).get(commId, userId, commId) as any;
+        `,
+            args: [commId, userId, commId] as any[]
+        });
+        const comm = commResult.rows[0] as any;
 
         if (!comm) return NextResponse.json({ error: "Community not found" }, { status: 404 });
         if (comm.privacy === 'private' && comm.is_member === 0) {
@@ -31,30 +35,36 @@ export async function GET(req: Request, { params }: any) {
         }
 
         // 2. Fetch the Post itself
-        const post = db.prepare(`
+        const postResult = await db.execute({
+            sql: `
             SELECT cp.*, u.name as author_name,
                    (SELECT COUNT(*) FROM comments WHERE post_id = cp.id) as comment_count,
                    (SELECT vote_value FROM votes WHERE target_id = cp.id AND target_type = 'post' AND user_id = ?) as user_vote
             FROM community_posts cp
             JOIN users u ON cp.user_id = u.id
             WHERE cp.id = ? AND cp.community_id = ?
-        `).get(userId, postId, commId) as any;
+        `,
+            args: [userId, postId, commId] as any[]
+        });
+        const post = postResult.rows[0] as any;
 
         if (!post) {
             return NextResponse.json({ error: "Post not found" }, { status: 404 });
         }
 
         // 3. Fetch all comments for this post
-        // We will fetch them flat, and let the frontend build the threaded tree, or build it here.
-        // It's often easier to build the tree on the backend so the frontend just renders it recursively.
-        const flatComments = db.prepare(`
+        const commentsResult = await db.execute({
+            sql: `
             SELECT c.*, u.name as author_name,
                    (SELECT vote_value FROM votes WHERE target_id = c.id AND target_type = 'comment' AND user_id = ?) as user_vote
             FROM comments c
             JOIN users u ON c.user_id = u.id
             WHERE c.post_id = ?
             ORDER BY c.vote_score DESC, c.created_at ASC
-        `).all(userId, postId) as any[];
+        `,
+            args: [userId, postId] as any[]
+        });
+        const flatComments = commentsResult.rows as any[];
 
         // Build Nested Tree
         const commentsMap = new Map();

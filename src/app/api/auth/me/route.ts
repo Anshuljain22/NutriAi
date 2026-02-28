@@ -16,8 +16,11 @@ export async function GET(req: Request) {
         const payload = await verifyToken(token);
         if (!payload) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
-        const stmt = db.prepare("SELECT id, name, email FROM users WHERE id = ?");
-        const user = stmt.get(payload.userId as string);
+        const result = await db.execute({
+            sql: "SELECT id, name, email FROM users WHERE id = ?",
+            args: [payload.userId as string]
+        });
+        const user = result.rows[0];
 
         if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 

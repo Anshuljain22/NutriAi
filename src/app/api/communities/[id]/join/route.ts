@@ -18,7 +18,11 @@ export async function POST(req: Request, { params }: any) {
         const communityId = (await params).id;
 
         // Check if community exists
-        const comm = db.prepare("SELECT privacy FROM communities WHERE id = ?").get(communityId) as any;
+        const commResult = await db.execute({
+            sql: "SELECT privacy FROM communities WHERE id = ?",
+            args: [communityId] as any[]
+        });
+        const comm = commResult.rows[0] as any;
         if (!comm) return NextResponse.json({ error: "Community not found" }, { status: 404 });
 
         if (comm.privacy === 'private') {
@@ -27,13 +31,14 @@ export async function POST(req: Request, { params }: any) {
         }
 
         try {
-            db.prepare(
-                "INSERT INTO community_members (community_id, user_id, role) VALUES (?, ?, ?)"
-            ).run(communityId, payload.userId, 'member');
+            await db.execute({
+                sql: "INSERT INTO community_members (community_id, user_id, role) VALUES (?, ?, ?)",
+                args: [communityId, payload.userId, 'member'] as any[]
+            });
 
             return NextResponse.json({ success: true, message: "Joined community" }, { status: 201 });
         } catch (err: any) {
-            if (err.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+            if (err.message && err.message.includes('UNIQUE constraint failed')) {
                 return NextResponse.json({ error: "Already a member" }, { status: 409 });
             }
             throw err;
@@ -60,20 +65,31 @@ export async function DELETE(req: Request, { params }: any) {
         const communityId = (await params).id;
 
         // Prevent creator from leaving and stranding the community (or implement abdication logic)
-        const roleCheck = db.prepare("SELECT role FROM community_members WHERE community_id = ? AND user_id = ?").get(communityId, payload.userId) as any;
+        const roleCheckResult = await db.execute({
+            sql: "SELECT role FROM community_members WHERE community_id = ? AND user_id = ?",
+            args: [communityId, payload.userId] as any[]
+        });
+        const roleCheck = roleCheckResult.rows[0] as any;
 
         if (!roleCheck) {
             return NextResponse.json({ error: "Not a member" }, { status: 404 });
         }
 
         if (roleCheck.role === 'admin') {
-            const creatorCheck = db.prepare("SELECT creator_id FROM communities WHERE id = ?").get(communityId) as any;
+            const creatorCheckResult = await db.execute({
+                sql: "SELECT creator_id FROM communities WHERE id = ?",
+                args: [communityId] as any[]
+            });
+            const creatorCheck = creatorCheckResult.rows[0] as any;
             if (creatorCheck && creatorCheck.creator_id === payload.userId) {
                 return NextResponse.json({ error: "Creator cannot leave the community. Delete it instead." }, { status: 403 });
             }
         }
 
-        db.prepare("DELETE FROM community_members WHERE community_id = ? AND user_id = ?").run(communityId, payload.userId);
+        await db.execute({
+            sql: "DELETE FROM community_members WHERE community_id = ? AND user_id = ?",
+            args: [communityId, payload.userId] as any[]
+        });
 
         return NextResponse.json({ success: true, message: "Left community" }, { status: 200 });
     } catch (error) {

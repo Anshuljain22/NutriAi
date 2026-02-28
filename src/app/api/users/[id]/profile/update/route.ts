@@ -70,7 +70,8 @@ export async function POST(req: Request, { params }: any) {
         const daily_water_goal = Math.round((weight_kg * 30) + 500);
 
         // Update the database
-        const updateStmt = db.prepare(`
+        await db.execute({
+            sql: `
         UPDATE users SET 
             weight_kg = ?, 
             height_cm = ?, 
@@ -85,13 +86,13 @@ export async function POST(req: Request, { params }: any) {
             daily_carb_target = ?,
             daily_water_goal_ml = ?
         WHERE id = ?
-    `);
-
-        updateStmt.run(
-            weight_kg, height_cm, age, gender, activity_level, fitness_goal, dietary_preference || null,
-            daily_calorie_target, daily_protein_target, daily_fat_target, daily_carb_target, daily_water_goal,
-            targetUserId
-        );
+    `,
+            args: [
+                weight_kg, height_cm, age, gender, activity_level, fitness_goal, dietary_preference || null,
+                daily_calorie_target, daily_protein_target, daily_fat_target, daily_carb_target, daily_water_goal,
+                targetUserId
+            ] as any[]
+        });
 
         return NextResponse.json({
             message: "Profile updated successfully.",

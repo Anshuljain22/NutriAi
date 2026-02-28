@@ -12,8 +12,11 @@ export async function POST(req: Request) {
         }
 
         // Check if user already exists
-        const checkStmt = db.prepare("SELECT email FROM users WHERE email = ?");
-        const existingUser = checkStmt.get(email);
+        const checkResult = await db.execute({
+            sql: "SELECT email FROM users WHERE email = ?",
+            args: [email]
+        });
+        const existingUser = checkResult.rows[0];
         if (existingUser) {
             return NextResponse.json({ error: "Email already exists" }, { status: 409 });
         }
@@ -23,10 +26,10 @@ export async function POST(req: Request) {
         const userId = crypto.randomUUID();
 
         // Insert user
-        const insertStmt = db.prepare(
-            "INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)"
-        );
-        insertStmt.run(userId, name, email, passwordHash);
+        await db.execute({
+            sql: "INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)",
+            args: [userId, name, email, passwordHash]
+        });
 
         // Generate JWT
         const token = await signToken({ userId, email });

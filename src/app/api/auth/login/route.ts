@@ -11,8 +11,11 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        const stmt = db.prepare("SELECT id, name, email, password_hash FROM users WHERE email = ?");
-        const user = stmt.get(email) as any;
+        const result = await db.execute({
+            sql: "SELECT id, name, email, password_hash FROM users WHERE email = ?",
+            args: [email]
+        });
+        const user = result.rows[0] as any;
 
         if (!user) {
             return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });

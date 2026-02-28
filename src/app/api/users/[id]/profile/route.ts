@@ -19,7 +19,8 @@ export async function GET(req: Request, { params }: any) {
         const targetUserId = (await params).id;
 
         // 1. Get Basic User Info & Aggregation Stats
-        const userStmt = db.prepare(`
+        const userResult = await db.execute({
+            sql: `
       SELECT 
         u.id, 
         u.name,
@@ -47,16 +48,19 @@ export async function GET(req: Request, { params }: any) {
         EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = u.id) as is_following
       FROM users u
       WHERE u.id = ?
-    `);
+    `,
+            args: [viewingUserId, targetUserId] as any[]
+        });
 
-        const userProfile = userStmt.get(viewingUserId, targetUserId) as any;
+        const userProfile = userResult.rows[0] as any;
 
         if (!userProfile) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
         // Determine the most trained muscle group for this user
-        const topMuscleStmt = db.prepare(`
+        const topMuscleResult = await db.execute({
+            sql: `
       SELECT muscle_group, SUM(e.total_volume) as vol
       FROM exercises e
       JOIN workout_sessions ws ON e.session_id = ws.id
@@ -64,17 +68,23 @@ export async function GET(req: Request, { params }: any) {
       GROUP BY muscle_group
       ORDER BY vol DESC
       LIMIT 1
-    `);
-        const topMuscleRow = topMuscleStmt.get(targetUserId) as any;
+    `,
+            args: [targetUserId] as any[]
+        });
+        const topMuscleRow = topMuscleResult.rows[0] as any;
         const favoriteMuscle = topMuscleRow ? topMuscleRow.muscle_group : "None";
 
         // Fetch user achievements
-        const achivements = db.prepare(`
+        const achievementsResult = await db.execute({
+            sql: `
             SELECT achievement_type, earned_at 
             FROM user_achievements 
             WHERE user_id = ? 
             ORDER BY earned_at DESC
-        `).all(targetUserId);
+        `,
+            args: [targetUserId] as any[]
+        });
+        const achivements = achievementsResult.rows;
 
         // 2. Fetch Recent Public/Follower Workouts for this User
         // If it's their own profile, see all. 
@@ -104,17 +114,25 @@ export async function GET(req: Request, { params }: any) {
       LIMIT 10
     `;
 
-        const recentPostsRows = db.prepare(postsQuery).all(viewingUserId, targetUserId) as any[];
+        const recentPostsResult = await db.execute({
+            sql: postsQuery,
+            args: [viewingUserId, targetUserId] as any[]
+        });
+        const recentPostsRows = recentPostsResult.rows as any[];
 
         // Hydrate exercises for the posts safely
-        const recentPosts = recentPostsRows.map(row => {
-            const exercises = db.prepare("SELECT name, muscle_group, total_volume as volume FROM exercises WHERE session_id = ?").all(row.workout_id) as any[];
+        const recentPosts = await Promise.all(recentPostsRows.map(async row => {
+            const exercisesResult = await db.execute({
+                sql: "SELECT name, muscle_group, total_volume as volume FROM exercises WHERE session_id = ?",
+                args: [row.workout_id] as any[]
+            });
+            const exercises = exercisesResult.rows as any[];
             return {
                 post_id: row.post_id,
                 caption: row.caption,
                 privacy: row.privacy,
                 created_at: row.post_date,
-                score: (row.upvote_count || 0) - (row.downvote_count || 0),
+                score: (row.upvote_count as number || 0) - (row.downvote_count as number || 0),
                 user_vote: row.user_vote || 0,
                 workout: {
                     id: row.workout_id,
@@ -123,7 +141,7 @@ export async function GET(req: Request, { params }: any) {
                     exercises: exercises || []
                 }
             };
-        });
+        }));
 
         return NextResponse.json({
             profile: {

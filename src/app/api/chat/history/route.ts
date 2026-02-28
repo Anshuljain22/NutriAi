@@ -14,8 +14,11 @@ export async function GET(req: Request) {
         const payload = await verifyToken(token);
         if (!payload || !payload.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const stmt = db.prepare("SELECT * FROM chat_history WHERE user_id = ? ORDER BY timestamp ASC");
-        const history = stmt.all(payload.userId);
+        const result = await db.execute({
+            sql: "SELECT * FROM chat_history WHERE user_id = ? ORDER BY timestamp ASC",
+            args: [payload.userId] as any[]
+        });
+        const history = result.rows;
 
         return NextResponse.json({ history }, { status: 200 });
     } catch (error) {
@@ -38,11 +41,11 @@ export async function POST(req: Request) {
 
         const { role, content } = await req.json();
 
-        const insertStmt = db.prepare(
-            "INSERT INTO chat_history (id, user_id, role, content) VALUES (?, ?, ?, ?)"
-        );
         const id = crypto.randomUUID();
-        insertStmt.run(id, payload.userId, role, content);
+        await db.execute({
+            sql: "INSERT INTO chat_history (id, user_id, role, content) VALUES (?, ?, ?, ?)",
+            args: [id, payload.userId, role, content] as any[]
+        });
 
         return NextResponse.json({ success: true, id }, { status: 201 });
     } catch (error) {

@@ -26,19 +26,21 @@ export async function POST(req: Request) {
         const logId = randomUUID();
 
         // 1. Insert Weight Log
-        const insertLog = db.prepare(`
+        await db.execute({
+            sql: `
         INSERT INTO weight_logs (id, user_id, weight_kg, date)
         VALUES (?, ?, ?, ?)
-    `);
-
-        insertLog.run(logId, userId, weight_kg, date);
+    `,
+            args: [logId, userId, weight_kg, date] as any[]
+        });
 
         // 2. Update Latest User Weight in Users Table
-        const updateUser = db.prepare(`
+        await db.execute({
+            sql: `
         UPDATE users SET weight_kg = ? WHERE id = ?
-    `);
-
-        updateUser.run(weight_kg, userId);
+    `,
+            args: [weight_kg, userId] as any[]
+        });
 
         return NextResponse.json({ message: "Weight logged successfully" }, { status: 201 });
 
@@ -64,7 +66,8 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const limit = searchParams.get("limit") || "30";
 
-        const logs = db.prepare("SELECT * FROM weight_logs WHERE user_id = ? ORDER BY date DESC LIMIT ?").all(userId, limit);
+        const logsResult = await db.execute({ sql: "SELECT * FROM weight_logs WHERE user_id = ? ORDER BY date DESC LIMIT ?", args: [userId, limit] as any[] });
+        const logs = logsResult.rows;
 
         return NextResponse.json({ logs }, { status: 200 });
 

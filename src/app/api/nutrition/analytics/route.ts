@@ -19,7 +19,8 @@ export async function GET(request: Request) {
         const days = parseInt(url.searchParams.get('days') || '7');
 
         // Fetch Daily Nutrition Summaries (Calories, Macros) for the last N days
-        const summariesRows = db.prepare(`
+        const summariesResult = await db.execute({
+            sql: `
             SELECT 
                 date, 
                 total_calories, 
@@ -30,20 +31,28 @@ export async function GET(request: Request) {
             FROM daily_nutrition_summary
             WHERE user_id = ? AND date >= date('now', '-' || ? || ' days')
             ORDER BY date ASC
-        `).all(user.id, days);
+        `,
+            args: [user.id, days] as any[]
+        });
+        const summariesRows = summariesResult.rows as any[];
 
         // Fetch Weight Logs for the last N days
-        const weightRows = db.prepare(`
+        const weightResult = await db.execute({
+            sql: `
             SELECT 
                 date, 
                 weight_kg
             FROM weight_logs
             WHERE user_id = ? AND date >= date('now', '-' || ? || ' days')
             ORDER BY date ASC
-        `).all(user.id, days);
+        `,
+            args: [user.id, days] as any[]
+        });
+        const weightRows = weightResult.rows as any[];
 
         // Fetch User Targets for context/comparisons
-        const userTargets = db.prepare(`
+        const targetsResult = await db.execute({
+            sql: `
             SELECT 
                 daily_calorie_target,
                 daily_protein_target,
@@ -53,7 +62,10 @@ export async function GET(request: Request) {
                 nutrition_streak
             FROM users
             WHERE id = ?
-        `).get(user.id);
+        `,
+            args: [user.id] as any[]
+        });
+        const userTargets = targetsResult.rows[0];
 
         return NextResponse.json({
             days,

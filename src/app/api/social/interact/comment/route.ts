@@ -21,27 +21,31 @@ export async function POST(req: Request) {
 
         const commentId = crypto.randomUUID();
 
-        db.prepare(
-            "INSERT INTO comments (id, user_id, post_id, parent_comment_id, content) VALUES (?, ?, ?, ?, ?)"
-        ).run(commentId, payload.userId, post_id, parent_comment_id || null, content);
+        await db.execute({
+            sql: "INSERT INTO comments (id, user_id, post_id, parent_comment_id, content) VALUES (?, ?, ?, ?, ?)",
+            args: [commentId, payload.userId, post_id, parent_comment_id || null, content] as any[]
+        });
 
         // Determine owner of the target to send a notification
         let ownerId = null;
         if (parent_comment_id) {
             // Replying to a comment
-            const row = db.prepare("SELECT user_id FROM comments WHERE id = ?").get(parent_comment_id) as any;
+            const rowResult = await db.execute({ sql: "SELECT user_id FROM comments WHERE id = ?", args: [parent_comment_id] as any[] });
+            const row = rowResult.rows[0] as any;
             if (row) ownerId = row.user_id;
         } else {
             // Replying to the post
-            const row = db.prepare("SELECT user_id FROM community_posts WHERE id = ?").get(post_id) as any;
+            const rowResult = await db.execute({ sql: "SELECT user_id FROM community_posts WHERE id = ?", args: [post_id] as any[] });
+            const row = rowResult.rows[0] as any;
             if (row) ownerId = row.user_id;
         }
 
         // Generate Notification if we aren't commenting on our own post/comment
         if (ownerId && ownerId !== payload.userId) {
-            db.prepare(
-                "INSERT INTO notifications (id, user_id, actor_id, type, reference_id) VALUES (?, ?, ?, ?, ?)"
-            ).run(crypto.randomUUID(), ownerId, payload.userId, 'comment_post', post_id);
+            await db.execute({
+                sql: "INSERT INTO notifications (id, user_id, actor_id, type, reference_id) VALUES (?, ?, ?, ?, ?)",
+                args: [crypto.randomUUID(), ownerId, payload.userId, 'comment_post', post_id] as any[]
+            });
         }
 
         return NextResponse.json({ success: true, comment_id: commentId }, { status: 201 });

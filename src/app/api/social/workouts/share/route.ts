@@ -20,7 +20,11 @@ export async function POST(req: Request) {
         if (!workout_id) return NextResponse.json({ error: "Missing workout_id" }, { status: 400 });
 
         // Verify the workout actually belongs to this user before they can share it
-        const workoutCheck = db.prepare("SELECT id FROM workout_sessions WHERE id = ? AND user_id = ?").get(workout_id, payload.userId);
+        const workoutCheckResult = await db.execute({
+            sql: "SELECT id FROM workout_sessions WHERE id = ? AND user_id = ?",
+            args: [workout_id, payload.userId] as any[]
+        });
+        const workoutCheck = workoutCheckResult.rows[0];
         if (!workoutCheck) {
             return NextResponse.json({ error: "Workout not found or you don't own it" }, { status: 403 });
         }
@@ -29,13 +33,14 @@ export async function POST(req: Request) {
         const safePrivacy = ['public', 'followers', 'private'].includes(privacy) ? privacy : 'public';
 
         try {
-            db.prepare(
-                "INSERT INTO workout_posts (id, user_id, workout_id, caption, privacy) VALUES (?, ?, ?, ?, ?)"
-            ).run(postId, payload.userId, workout_id, caption || null, safePrivacy);
+            await db.execute({
+                sql: "INSERT INTO workout_posts (id, user_id, workout_id, caption, privacy) VALUES (?, ?, ?, ?, ?)",
+                args: [postId, payload.userId, workout_id, caption || null, safePrivacy] as any[]
+            });
 
             return NextResponse.json({ success: true, post_id: postId }, { status: 201 });
         } catch (insertError: any) {
-            if (insertError.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            if (insertError.message && insertError.message.includes('UNIQUE constraint failed')) {
                 return NextResponse.json({ error: "This workout is already shared" }, { status: 409 });
             }
             throw insertError;

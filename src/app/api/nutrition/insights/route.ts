@@ -17,26 +17,34 @@ export async function GET(request: Request) {
         const user = { id: payload.userId };
 
         // 1. Fetch User Data
-        const userData = db.prepare(`
+        const userDataResult = await db.execute({
+            sql: `
             SELECT 
                 weight_kg, height_cm, age, gender, activity_level, 
                 fitness_goal, dietary_preference, 
                 daily_calorie_target, daily_protein_target, 
                 daily_carb_target, daily_fat_target, daily_water_goal_ml as daily_water_goal
             FROM users WHERE id = ?
-        `).get(user.id) as any;
+        `,
+            args: [user.id] as any[]
+        });
+        const userData = userDataResult.rows[0] as any;
 
         if (!userData || !userData.daily_calorie_target) {
             return NextResponse.json({ error: 'Please complete your profile to receive insights.' }, { status: 400 });
         }
 
         // 2. Fetch past 7 days of nutrition
-        const recentNutrition = db.prepare(`
+        const recentNutritionResult = await db.execute({
+            sql: `
             SELECT date, total_calories, total_protein_g, total_carbs_g, total_fat_g, total_water_ml
             FROM daily_nutrition_summary
             WHERE user_id = ? AND date >= date('now', '-7 days')
             ORDER BY date ASC
-        `).all(user.id);
+        `,
+            args: [user.id] as any[]
+        });
+        const recentNutrition = recentNutritionResult.rows as any[];
 
         if (recentNutrition.length === 0) {
             return NextResponse.json({
@@ -52,7 +60,7 @@ export async function GET(request: Request) {
             - Targets -> Calories: ${userData.daily_calorie_target}kcal, Protein: ${userData.daily_protein_target}g, Carbs: ${userData.daily_carb_target}g, Fat: ${userData.daily_fat_target}g, Water: ${userData.daily_water_goal}ml
             
             Last 7 Days Nutrition Log:
-            ${recentNutrition.map((day: any) => `- ${day.date}: ${day.total_calories} kcal (P: ${day.total_protein_g}g, C: ${day.total_carbs_g}g, F: ${day.total_fat_g}g), Water: ${day.total_water_ml}ml`).join('\\n')}
+            ${recentNutrition.map((day: any) => `- ${day.date}: ${day.total_calories} kcal (P: ${day.total_protein_g}g, C: ${day.total_carbs_g}g, F: ${day.total_fat_g}g), Water: ${day.total_water_ml}ml`).join('\n')}
         `;
 
         const prompt = `

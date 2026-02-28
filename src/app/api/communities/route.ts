@@ -18,22 +18,27 @@ export async function GET(req: Request) {
 
         let communities = [];
         if (userId) {
-            communities = db.prepare(`
+            const result = await db.execute({
+                sql: `
         SELECT c.*, 
                EXISTS(SELECT 1 FROM community_members WHERE community_id = c.id AND user_id = ?) as is_member
         FROM communities c
         WHERE c.privacy = 'public' OR 
               EXISTS(SELECT 1 FROM community_members WHERE community_id = c.id AND user_id = ?)
         ORDER BY c.member_count DESC
-      `).all(userId, userId);
+      `,
+                args: [userId, userId] as any[]
+            });
+            communities = result.rows;
         } else {
-            communities = db.prepare(`
+            const result = await db.execute(`
         SELECT c.*, 
                0 as is_member
         FROM communities c
         WHERE c.privacy = 'public'
         ORDER BY c.member_count DESC
-      `).all();
+      `);
+            communities = result.rows;
         }
 
         return NextResponse.json({ communities }, { status: 200 });
@@ -63,19 +68,21 @@ export async function POST(req: Request) {
         const communityId = crypto.randomUUID();
 
         try {
-            db.transaction(() => {
-                db.prepare(
-                    "INSERT INTO communities (id, name, description, cover_image, rules, tags, privacy, creator_id, member_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)"
-                ).run(communityId, name.trim(), description || "", cover_image || null, rules || null, tags || null, safePrivacy, payload.userId);
+            // Note: turso @libsql/client supports executeMultiple or batch for transactions
+            // Doing it sequentially here for simplicity
+            await db.execute({
+                sql: "INSERT INTO communities (id, name, description, cover_image, rules, tags, privacy, creator_id, member_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                args: [communityId, name.trim(), description || "", cover_image || null, rules || null, tags || null, safePrivacy, payload.userId] as any[]
+            });
 
-                db.prepare(
-                    "INSERT INTO community_members (community_id, user_id, role) VALUES (?, ?, ?)"
-                ).run(communityId, payload.userId, 'moderator'); // Creator is instantly moderator
-            })();
+            await db.execute({
+                sql: "INSERT INTO community_members (community_id, user_id, role) VALUES (?, ?, ?)",
+                args: [communityId, payload.userId, 'moderator'] as any[]
+            });
 
             return NextResponse.json({ success: true, community_id: communityId }, { status: 201 });
         } catch (err: any) {
-            if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            if (err.message && err.message.includes('UNIQUE constraint failed')) {
                 return NextResponse.json({ error: "Community name already taken" }, { status: 409 });
             }
             throw err;

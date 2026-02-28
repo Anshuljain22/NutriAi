@@ -19,14 +19,18 @@ export async function GET(req: Request, { params }: any) {
         const commId = (await params).id;
 
         // 1. Get Community Profile
-        const comm = db.prepare(`
+        const commResult = await db.execute({
+            sql: `
       SELECT c.*, 
              u.name as creator_name,
              EXISTS(SELECT 1 FROM community_members WHERE community_id = c.id AND user_id = ?) as is_member
       FROM communities c
       JOIN users u ON c.creator_id = u.id
       WHERE c.id = ?
-    `).get(userId, commId) as any;
+    `,
+            args: [userId, commId] as any[]
+        });
+        const comm = commResult.rows[0] as any;
 
         if (!comm) return NextResponse.json({ error: "Community not found" }, { status: 404 });
 
@@ -34,7 +38,8 @@ export async function GET(req: Request, { params }: any) {
         let posts: any[] = [];
         // TODO: Implement sorting logic (Hot, New, Top, Controversial) based on request query param
         if (comm.privacy === 'public' || comm.is_member === 1) {
-            posts = db.prepare(`
+            const postsResult = await db.execute({
+                sql: `
          SELECT cp.id as post_id, cp.title, cp.body, cp.image_url, cp.score, cp.upvote_count, cp.downvote_count, cp.created_at, cp.is_pinned, cp.is_locked,
                 u.id as author_id, u.name as author_name,
                 (SELECT COUNT(*) FROM comments WHERE post_id = cp.id) as comment_count,
@@ -44,7 +49,10 @@ export async function GET(req: Request, { params }: any) {
          WHERE cp.community_id = ?
          ORDER BY cp.is_pinned DESC, cp.created_at DESC
          LIMIT 50
-       `).all(userId, commId) as any[];
+       `,
+                args: [userId, commId] as any[]
+            });
+            posts = postsResult.rows as any[];
         }
 
         return NextResponse.json({
@@ -90,16 +98,21 @@ export async function POST(req: Request, { params }: any) {
         if (!title || !body) return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
 
         // Verify membership
-        const isMember = db.prepare("SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?").get(commId, payload.userId);
+        const isMemberResult = await db.execute({
+            sql: "SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?",
+            args: [commId, payload.userId] as any[]
+        });
+        const isMember = isMemberResult.rows[0];
 
         if (!isMember) {
             return NextResponse.json({ error: "You must join this community to post" }, { status: 403 });
         }
 
         const postId = crypto.randomUUID();
-        db.prepare(
-            "INSERT INTO community_posts (id, community_id, user_id, title, body, image_url) VALUES (?, ?, ?, ?, ?, ?)"
-        ).run(postId, commId, payload.userId, title, body, image_url || null);
+        await db.execute({
+            sql: "INSERT INTO community_posts (id, community_id, user_id, title, body, image_url) VALUES (?, ?, ?, ?, ?, ?)",
+            args: [postId, commId, payload.userId, title, body, image_url || null] as any[]
+        });
 
         return NextResponse.json({ success: true, post_id: postId }, { status: 201 });
 

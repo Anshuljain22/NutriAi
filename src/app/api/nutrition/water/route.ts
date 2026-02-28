@@ -26,22 +26,24 @@ export async function POST(req: Request) {
         const logId = randomUUID();
 
         // 1. Insert Water Log
-        const insertLog = db.prepare(`
+        await db.execute({
+            sql: `
         INSERT INTO water_logs (id, user_id, amount_ml, date)
         VALUES (?, ?, ?, ?)
-    `);
-
-        insertLog.run(logId, userId, amount_ml, date);
+    `,
+            args: [logId, userId, amount_ml, date] as any[]
+        });
 
         // 2. Upsert Daily Summary
-        const upsertSummary = db.prepare(`
+        await db.execute({
+            sql: `
         INSERT INTO daily_nutrition_summary (id, user_id, date, total_water_ml)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(user_id, date) DO UPDATE SET
             total_water_ml = total_water_ml + excluded.total_water_ml
-    `);
-
-        upsertSummary.run(randomUUID(), userId, date, amount_ml);
+    `,
+            args: [randomUUID(), userId, date, amount_ml] as any[]
+        });
 
         return NextResponse.json({ message: "Water logged successfully" }, { status: 201 });
 
